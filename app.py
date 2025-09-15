@@ -6,31 +6,13 @@ from sklearn.preprocessing import StandardScaler
 
 st.set_page_config(page_title="Player Similarity Finder", layout="wide")
 
-# ---------------------------
-# 1) DATA LOADING
-# ---------------------------
+# --- Load dataset directly from repo ---
+df = pd.read_csv("WORLDJUNE25.csv")
+
 st.title("⚽ Player Similarity Finder")
+st.subheader("Dataset preview")
+st.dataframe(df.head())
 
-st.markdown(
-    "Upload your dataset (CSV/Parquet) with the columns used below, "
-    "or skip upload if you're importing `df` inside this file."
-)
-
-uploaded = st.file_uploader("Upload CSV or Parquet", type=["csv", "parquet"])
-
-@st.cache_data(show_spinner=False)
-def load_data(file):
-    if file is None:
-        # If you prefer to hard-load your df here, replace the next line with your import.
-        st.stop()  # Ensures we don't error if no data provided
-    if file.name.endswith(".csv"):
-        return pd.read_csv(file)
-    return pd.read_parquet(file)
-
-df = load_data(uploaded) if uploaded is not None else None
-if df is None:
-    st.info("⬆️ Upload your data to continue.")
-    st.stop()
 
 # ---------------------------
 # 2) CONSTANTS (same as your notebook)
