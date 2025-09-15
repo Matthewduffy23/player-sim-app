@@ -201,7 +201,7 @@ with st.sidebar:
 
     min_minutes, max_minutes = st.slider("Minutes played", 0, 12000, (500, 999999))
     min_age, max_age = st.slider("Age", 14, 45, (16, 33))
-   min_value, max_value = st.slider(
+    min_value, max_value = st.slider(
     "Market value (€)",
     0, 150_000_000, (0, 150_000_000)
 )
