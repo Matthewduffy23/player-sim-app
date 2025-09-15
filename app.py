@@ -10,8 +10,6 @@ st.set_page_config(page_title="Player Similarity Finder", layout="wide")
 df = pd.read_csv("WORLDJUNE25.csv")
 
 st.title("⚽ Player Similarity Finder")
-st.subheader("Dataset preview")
-st.dataframe(df.head())
 
 
 # ---------------------------
