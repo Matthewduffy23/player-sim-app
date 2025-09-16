@@ -71,7 +71,7 @@ weight_factors = {
     'Passes per 90': 3,
     'Dribbles per 90': 3,
     'Non-penalty goals per 90': 3,
-    'Aerial duels won, %': 1,
+    'Aerial duels won, %': 2,
     'Aerial duels per 90': 3,
     'xA per 90': 2,
     'xG per 90': 3,
