@@ -13,7 +13,7 @@ df = pd.read_csv("WORLDJUNE25.csv")
 st.title("⚽ Player Similarity Finder")
 
 # ---------------------------
-# 2) CONSTANTS
+# CONSTANTS
 # ---------------------------
 included_leagues = [
     'England 1.', 'England 2.', 'England 3.', 'England 4.', 'England 5.',
@@ -40,7 +40,7 @@ included_leagues = [
     'Uruguay 1.', 'Uzbekistan 1.', 'Venezuela 1.', 'Wales 1.'
 ]
 
-# ---- League presets (as you requested) ----
+# League presets for the candidate pool
 PRESETS = {
     "Top 5 Europe": [
         'England 1.', 'France 1.', 'Germany 1.', 'Italy 1.', 'Spain 1.'
@@ -54,7 +54,7 @@ PRESETS = {
     ],
     "EFL (England 2–4)": ['England 2.', 'England 3.', 'England 4.'],
     "All listed leagues": included_leagues,
-    "Custom": None,  # use the multiselect as-is
+    "Custom": None,
 }
 
 features = [
@@ -78,9 +78,7 @@ weight_factors = {
     'Touches in box per 90': 2,
 }
 
-# Defaults
 DEFAULT_PERCENTILE_WEIGHT = 0.7
-DEFAULT_ACTUAL_WEIGHT = 0.3
 DEFAULT_LEAGUE_WEIGHT = 0.2
 
 league_strengths = {
@@ -116,38 +114,47 @@ league_strengths = {
 }
 
 # ---------------------------
-# 3) SIDEBAR CONTROLS
+# SIDEBAR CONTROLS
 # ---------------------------
 with st.sidebar:
-    st.header("Controls")
+    st.header("Leagues")
 
-    # --- League preset + multiselect (session_state-driven) ---
-    if 'leagues_sel' not in st.session_state:
-        st.session_state.leagues_sel = included_leagues.copy()
-
-    preset_name = st.selectbox("League preset", list(PRESETS.keys()), index=0)
-    if st.button("Apply preset"):
-        preset_list = PRESETS[preset_name]
-        if preset_list is not None:
-            st.session_state.leagues_sel = preset_list
-
-    leagues_all_choices = sorted(list(set(included_leagues) | set(df.get('League', pd.Series([])).dropna().unique())))
-    leagues_selected = st.multiselect(
-        "Leagues included",
-        leagues_all_choices,
-        default=st.session_state.leagues_sel,
-        key="leagues_sel"
+    # --- Target selection leagues (choose target from anywhere) ---
+    target_leagues = st.multiselect(
+        "Target leagues (for choosing the target player)",
+        sorted(set(included_leagues) | set(df.get('League', pd.Series([])).dropna().unique())),
+        default=included_leagues
     )
 
-    player_names = df[df['League'].isin(leagues_selected)]['Player'].dropna().unique()
+    # --- Candidate pool leagues with preset + extras ---
+    if 'candidate_leagues' not in st.session_state:
+        st.session_state.candidate_leagues = included_leagues.copy()
+
+    preset_name = st.selectbox("Candidate pool preset", list(PRESETS.keys()), index=0)
+    if st.button("Apply preset"):
+        preset = PRESETS[preset_name]
+        if preset is not None:
+            st.session_state.candidate_leagues = preset
+
+    extra_leagues = st.multiselect(
+        "Extra leagues to include (added to preset)",
+        sorted(set(included_leagues) | set(df.get('League', pd.Series([])).dropna().unique())),
+        default=[]
+    )
+
+    # Final candidate league set = preset (in state) ∪ extras
+    leagues_selected = sorted(set(st.session_state.candidate_leagues) | set(extra_leagues))
+
+    st.caption(f"Candidate pool has **{len(leagues_selected)}** leagues.")
+
+    # --- Target player from *target_leagues* ---
+    player_names = df[df['League'].isin(target_leagues)]['Player'].dropna().unique()
     target_player = st.selectbox("Target player", sorted(player_names))
 
-    # --- Minutes played: 0..5,000 (default 500..5,000)
+    st.header("Filters")
     min_minutes, max_minutes = st.slider("Minutes played", 0, 5000, (500, 5000))
-
     min_age, max_age = st.slider("Age", 14, 45, (16, 33))
 
-    # --- Market value controls ---
     mv_col = 'Market value'
     mv_max_raw = int(np.nanmax(df[mv_col])) if mv_col in df.columns and df[mv_col].notna().any() else 150_000_000
     mv_cap = int(math.ceil(mv_max_raw / 5_000_000) * 5_000_000)
@@ -177,7 +184,7 @@ with st.sidebar:
     st.subheader("Weights")
     percentile_weight = st.slider("Percentile weight", 0.0, 1.0, DEFAULT_PERCENTILE_WEIGHT, 0.05)
     actual_value_weight = 1.0 - percentile_weight
-    st.caption(f"Actual value weight is set to {actual_value_weight:.2f} (1 - percentile weight)")
+    st.caption(f"Actual value weight is set to {actual_value_weight:.2f}")
 
     league_weight = st.slider("League weight (difficulty adjustment)", 0.0, 1.0, DEFAULT_LEAGUE_WEIGHT, 0.05)
 
@@ -195,60 +202,75 @@ with st.sidebar:
     top_n = st.number_input("Show top N", min_value=5, max_value=200, value=50, step=5)
 
 # ---------------------------
-# 4) COMPUTATION
+# COMPUTATION
 # ---------------------------
 required_cols = {
-    'Player','Team','League','Age','Position','Goals','Minutes played','Market value',
-    *features
+    'Player','Team','League','Age','Position','Goals','Minutes played','Market value', *features
 }
 missing = [c for c in required_cols if c not in df.columns]
 if missing:
     st.error(f"Your data is missing required columns: {missing}")
     st.stop()
 
-# Filter leagues first so the percentiles are computed inside the chosen competitions
-df_filtered = df[df['League'].isin(leagues_selected)].copy()
+# Candidate pool (used for scaler + results)
+df_candidates = df[df['League'].isin(leagues_selected)].copy()
+df_candidates = df_candidates.dropna(subset=features)
+df_candidates = df_candidates[df_candidates['Goals'] > 0]
+df_candidates = df_candidates[df_candidates['Dribbles per 90'] > 0]
+df_candidates = df_candidates[df_candidates['Position'].astype(str).str.startswith(('CF',))]
 
-# Cleanup & basic eligibility filters
-df_filtered = df_filtered.dropna(subset=features)
-df_filtered = df_filtered[df_filtered['Goals'] > 0]
-df_filtered = df_filtered[df_filtered['Dribbles per 90'] > 0]
-df_filtered = df_filtered[df_filtered['Position'].astype(str).str.startswith(('CF',))]
-
-if target_player not in df_filtered['Player'].values:
-    st.warning("Target player not found in the filtered set. Try expanding leagues or filters.")
+# Target row (can come from leagues outside candidate pool)
+df_target_pool = df[df['League'].isin(target_leagues)].copy()
+if target_player not in df_target_pool['Player'].values:
+    st.warning("Target player not found in target leagues. Adjust 'Target leagues'.")
     st.stop()
 
-# Target vectors
-target_features = df_filtered.loc[df_filtered['Player'] == target_player, features].values
-target_percentiles = (
-    df_filtered.groupby('League')[features]
+target_row_full = df_target_pool.loc[df_target_pool['Player'] == target_player].iloc[0]
+target_league = target_row_full['League']
+
+# Safety: ensure candidate pool not empty
+if df_candidates.empty:
+    st.warning("No candidates after filters/preset. Widen candidate leagues or relax filters.")
+    st.stop()
+
+# Build arrays
+target_features = target_row_full[features].values.reshape(1, -1)
+target_percentiles_in_candidates = (
+    df_candidates.groupby('League')[features]
     .rank(pct=True)
-    .loc[df_filtered['Player'] == target_player]
+)
+
+# Percentiles for all candidates
+percentile_ranks = target_percentiles_in_candidates.values
+
+# Percentiles for the target — compute over its own league (full df, so it's stable)
+target_percentiles = (
+    df.groupby('League')[features]
+    .rank(pct=True)
+    .loc[df['Player'] == target_player]
     .values
 )
 
-# Feature weights array
+# Feature weights
 weights = np.array([wf.get(f, 1) for f in features], dtype=float)
 
-# Standardize actual values
+# Standardize over the candidate pool
 scaler = StandardScaler()
-standardized_features = scaler.fit_transform(df_filtered[features])
+standardized_features = scaler.fit_transform(df_candidates[features])
 target_features_standardized = scaler.transform(target_features)
 
 # Distances
-percentile_ranks = df_filtered.groupby('League')[features].rank(pct=True).values
 percentile_distances = np.linalg.norm((percentile_ranks - target_percentiles) * weights, axis=1)
 actual_value_distances = np.linalg.norm((standardized_features - target_features_standardized) * weights, axis=1)
 
-combined = percentile_distances * percentile_weight + actual_value_distances * actual_value_weight
+combined = percentile_distances * percentile_weight + actual_value_distances * (1.0 - percentile_weight)
 
 # Normalize to similarity 0..100
 norm = (combined - np.min(combined)) / (np.ptp(combined) if np.ptp(combined) != 0 else 1.0)
 similarities = ((1 - norm) * 100).round(2)
 
-# Build frame
-similarity_df = df_filtered.copy()
+# Assemble result frame
+similarity_df = df_candidates.copy()
 similarity_df['Similarity'] = similarities
 similarity_df = similarity_df[similarity_df['Player'] != target_player]
 
@@ -264,7 +286,6 @@ similarity_df = similarity_df[
 
 # League strength & range
 similarity_df['League strength'] = similarity_df['League'].map(league_strengths).fillna(0.0)
-target_league = df_filtered.loc[df_filtered['Player'] == target_player, 'League'].iloc[0]
 target_league_strength = league_strengths.get(target_league, 1.0)
 
 similarity_df = similarity_df[
@@ -272,44 +293,44 @@ similarity_df = similarity_df[
     (similarity_df['League strength'] <= float(max_strength))
 ]
 
-# League difficulty adjustment
+# Difficulty adjustment
 league_ratio = (similarity_df['League strength'] / target_league_strength).clip(lower=0.5, upper=1.2)
 similarity_df['Adjusted Similarity'] = (
     similarity_df['Similarity'] * (1 - league_weight) +
     similarity_df['Similarity'] * league_ratio * league_weight
 )
 
-# Rank and display
+# Rank
 similarity_df = similarity_df.sort_values('Adjusted Similarity', ascending=False).reset_index(drop=True)
 similarity_df.insert(0, 'Rank', np.arange(1, len(similarity_df) + 1))
 
 # ---------------------------
-# 5) UI OUTPUT
+# UI OUTPUT
 # ---------------------------
-st.subheader(f"Similar to: {target_player}  —  League: {target_league} (strength {target_league_strength:.2f})")
+st.subheader(f"Similar to: {target_player} — target league {target_league} (strength {target_league_strength:.2f})")
 
 cols_to_show = ['Rank', 'Player', 'Team', 'League', 'Age', 'Minutes played',
                 'Market value', 'League strength', 'Similarity', 'Adjusted Similarity']
 cols_to_show = [c for c in cols_to_show if c in similarity_df.columns]
 
-st.dataframe(
-    similarity_df[cols_to_show].head(int(top_n)),
-    use_container_width=True
-)
+st.dataframe(similarity_df[cols_to_show].head(int(top_n)), use_container_width=True)
 
 csv = similarity_df[cols_to_show].to_csv(index=False).encode('utf-8')
 st.download_button("⬇️ Download full results (CSV)", data=csv, file_name="similarity_results.csv", mime="text/csv")
 
 with st.expander("Debug / Repro details"):
     st.write({
-        "league_preset": preset_name,
-        "percentile_weight": percentile_weight,
-        "actual_value_weight": actual_value_weight,
-        "league_weight": league_weight,
+        "candidate_preset": preset_name,
+        "candidate_leagues_final_count": len(leagues_selected),
+        "extra_leagues_selected": extra_leagues,
+        "target_leagues_count": len(target_leagues),
+        "percentile_weight": float(percentile_weight),
+        "league_weight": float(league_weight),
         "target_league_strength": float(target_league_strength),
         "n_candidates": int(len(similarity_df)),
         "market_value_range": (int(min_value), int(max_value)),
         "minutes_range": (int(min_minutes), int(max_minutes)),
     })
+
 
 
