@@ -294,7 +294,7 @@ similarity_df = similarity_df[
 ]
 
 # Difficulty adjustment
-league_ratio = (similarity_df['League strength'] / target_league_strength).clip(lower=0.5, upper=1.2)
+league_ratio = (similarity_df['League strength'] / target_league_strength).clip(lower=0.5, upper=1.0)
 similarity_df['Adjusted Similarity'] = (
     similarity_df['Similarity'] * (1 - league_weight) +
     similarity_df['Similarity'] * league_ratio * league_weight
