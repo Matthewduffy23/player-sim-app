@@ -79,7 +79,7 @@ weight_factors = {
 }
 
 DEFAULT_PERCENTILE_WEIGHT = 0.7
-DEFAULT_LEAGUE_WEIGHT = 0.3  # default 0.3 per request
+DEFAULT_LEAGUE_WEIGHT = 0.2
 
 league_strengths = {
     'England 1.': 100.00, 'Italy 1.': 97.14, 'Spain 1.': 94.29, 'Germany 1.': 94.29,
@@ -119,20 +119,6 @@ league_strengths = {
 with st.sidebar:
     st.header("Leagues")
 
-    # --- Quick toggles like in the other apps ---
-    c1, c2, c3 = st.columns(3)
-    use_top5 = c1.checkbox("Top-5", value=False)
-    use_top20 = c2.checkbox("Top-20", value=False)
-    use_efl = c3.checkbox("EFL", value=False)
-
-    toggle_seed = set()
-    if use_top5:
-        toggle_seed |= set(PRESETS["Top 5 Europe"])
-    if use_top20:
-        toggle_seed |= set(PRESETS["Top 20 Europe"])
-    if use_efl:
-        toggle_seed |= set(PRESETS["EFL (England 2–4)"])
-
     # --- Target selection leagues (choose target from anywhere) ---
     target_leagues = st.multiselect(
         "Target leagues (for choosing the target player)",
@@ -156,13 +142,8 @@ with st.sidebar:
         default=[]
     )
 
-    # Base candidate set = current preset in state, union with quick-toggles
-    base_candidate = set(st.session_state.candidate_leagues)
-    if toggle_seed:
-        base_candidate |= toggle_seed
-
-    # Final candidate league set = base ∪ extras
-    leagues_selected = sorted(base_candidate | set(extra_leagues))
+    # Final candidate league set = preset (in state) ∪ extras
+    leagues_selected = sorted(set(st.session_state.candidate_leagues) | set(extra_leagues))
 
     st.caption(f"Candidate pool has **{len(leagues_selected)}** leagues.")
 
@@ -205,13 +186,7 @@ with st.sidebar:
     actual_value_weight = 1.0 - percentile_weight
     st.caption(f"Actual value weight is set to {actual_value_weight:.2f}")
 
-    # NEW: Toggle for league weight (default ON) and slider default 0.3
-    use_league_weight = st.checkbox("Apply league weight adjustment", value=True)
-    league_weight = st.slider(
-        "League weight (difficulty adjustment)", 0.0, 1.0, DEFAULT_LEAGUE_WEIGHT, 0.05,
-        disabled=not use_league_weight
-    )
-    effective_league_weight = league_weight if use_league_weight else 0.0
+    league_weight = st.slider("League weight (difficulty adjustment)", 0.0, 1.0, DEFAULT_LEAGUE_WEIGHT, 0.05)
 
     with st.expander("Advanced feature weights"):
         wf = weight_factors.copy()
@@ -318,11 +293,11 @@ similarity_df = similarity_df[
     (similarity_df['League strength'] <= float(max_strength))
 ]
 
-# Difficulty adjustment with toggle
+# Difficulty adjustment
 league_ratio = (similarity_df['League strength'] / target_league_strength).clip(lower=0.5, upper=1.2)
 similarity_df['Adjusted Similarity'] = (
-    similarity_df['Similarity'] * (1 - effective_league_weight) +
-    similarity_df['Similarity'] * league_ratio * effective_league_weight
+    similarity_df['Similarity'] * (1 - league_weight) +
+    similarity_df['Similarity'] * league_ratio * league_weight
 )
 
 # Rank
@@ -346,13 +321,11 @@ st.download_button("⬇️ Download full results (CSV)", data=csv, file_name="si
 with st.expander("Debug / Repro details"):
     st.write({
         "candidate_preset": preset_name,
-        "toggles": {"Top-5": use_top5, "Top-20": use_top20, "EFL": use_efl},
         "candidate_leagues_final_count": len(leagues_selected),
         "extra_leagues_selected": extra_leagues,
         "target_leagues_count": len(target_leagues),
         "percentile_weight": float(percentile_weight),
-        "use_league_weight": bool(use_league_weight),
-        "league_weight": float(league_weight if use_league_weight else 0.0),
+        "league_weight": float(league_weight),
         "target_league_strength": float(target_league_strength),
         "n_candidates": int(len(similarity_df)),
         "market_value_range": (int(min_value), int(max_value)),
