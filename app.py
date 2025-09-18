@@ -79,7 +79,7 @@ weight_factors = {
 }
 
 DEFAULT_PERCENTILE_WEIGHT = 0.7
-DEFAULT_LEAGUE_WEIGHT = 0.2
+DEFAULT_LEAGUE_WEIGHT = 0.4
 
 league_strengths = {
     'England 1.': 100.00, 'Italy 1.': 97.14, 'Spain 1.': 94.29, 'Germany 1.': 94.29,
@@ -168,7 +168,7 @@ with st.sidebar:
 
     st.header("Filters")
     min_minutes, max_minutes = st.slider("Minutes played", 0, 5000, (500, 5000))
-    min_age, max_age = st.slider("Age", 14, 45, (16, 33))
+    min_age, max_age = st.slider("Age", 14, 45, (16, 40))
 
     mv_col = 'Market value'
     mv_max_raw = int(np.nanmax(df[mv_col])) if mv_col in df.columns and df[mv_col].notna().any() else 150_000_000
@@ -329,7 +329,7 @@ similarity_df.insert(0, 'Rank', np.arange(1, len(similarity_df) + 1))
 st.subheader(f"Similar to: {target_player} — target league {target_league} (strength {target_league_strength:.2f})")
 
 cols_to_show = ['Rank', 'Player', 'Team', 'League', 'Age', 'Minutes played',
-                'Market value', 'League strength', 'Similarity', 'Adjusted Similarity']
+                'Market value', 'Adjusted Similarity']
 cols_to_show = [c for c in cols_to_show if c in similarity_df.columns]
 
 st.dataframe(similarity_df[cols_to_show].head(int(top_n)), use_container_width=True)
