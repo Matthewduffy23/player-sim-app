@@ -151,9 +151,8 @@ with st.sidebar:
     else:
         prefill = list(st.session_state.candidate_leagues)
 
-    # Intersection to avoid invalid defaults
+    # Final candidate league set — user can add *and* prune
     prefill = sorted([lg for lg in prefill if lg in all_league_options])
-
     leagues_selected = st.multiselect(
         "Leagues (add or prune the presets)",
         all_league_options,
@@ -282,7 +281,7 @@ actual_value_distances = np.linalg.norm((standardized_features - target_features
 
 combined = percentile_distances * percentile_weight + actual_value_distances * (1.0 - percentile_weight)
 
-# Normalize to similarity 0..100
+# Normalize to similarity 0..100 (min–max within the candidate pool)
 norm = (combined - np.min(combined)) / (np.ptp(combined) if np.ptp(combined) != 0 else 1.0)
 similarities = ((1 - norm) * 100).round(2)
 
@@ -342,7 +341,7 @@ with st.expander("Debug / Repro details"):
     st.write({
         "candidate_preset": preset_name,
         "candidate_leagues_final_count": len(leagues_selected),
-        "extra_leagues_selected": extra_leagues,
+        "extra_leagues_selected": extra_leagues if 'extra_leagues' in locals() else [],
         "target_leagues_count": len(target_leagues),
         "percentile_weight": float(percentile_weight),
         "league_weight": float(league_weight),
@@ -351,6 +350,7 @@ with st.expander("Debug / Repro details"):
         "market_value_range": (int(min_value), int(max_value)),
         "minutes_range": (int(min_minutes), int(max_minutes)),
     })
+
 
 
 
