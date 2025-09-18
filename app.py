@@ -126,24 +126,40 @@ with st.sidebar:
         default=included_leagues
     )
 
-    # --- Candidate pool leagues with preset + extras ---
+    # --- Candidate pool leagues with preset + extras (add & prune) ---
     if 'candidate_leagues' not in st.session_state:
         st.session_state.candidate_leagues = included_leagues.copy()
 
     preset_name = st.selectbox("Candidate pool preset", list(PRESETS.keys()), index=0)
+
     if st.button("Apply preset"):
-        preset = PRESETS[preset_name]
-        if preset is not None:
-            st.session_state.candidate_leagues = preset
+        preset = PRESETS.get(preset_name)
+        # For Custom, start from ALL listed so you can prune freely
+        st.session_state.candidate_leagues = preset if preset is not None else included_leagues.copy()
 
-    extra_leagues = st.multiselect(
-        "Extra leagues to include (added to preset)",
-        sorted(set(included_leagues) | set(df.get('League', pd.Series([])).dropna().unique())),
-        default=[]
+    all_league_options = sorted(set(included_leagues) | set(df.get('League', pd.Series([])).dropna().unique()))
+
+    # Keep backwards compatible "extras" for non-Custom; for Custom, extras = [].
+    extra_leagues = []
+    if preset_name != "Custom":
+        extra_leagues = st.multiselect(
+            "Extra leagues to include (added to preset)",
+            all_league_options,
+            default=[]
+        )
+        prefill = sorted(set(st.session_state.candidate_leagues) | set(extra_leagues))
+    else:
+        prefill = list(st.session_state.candidate_leagues)
+
+    # Intersection to avoid invalid defaults
+    prefill = sorted([lg for lg in prefill if lg in all_league_options])
+
+    leagues_selected = st.multiselect(
+        "Leagues (add or prune the presets)",
+        all_league_options,
+        default=prefill,
+        key="leagues_selected_ms"
     )
-
-    # Final candidate league set = preset (in state) ∪ extras
-    leagues_selected = sorted(set(st.session_state.candidate_leagues) | set(extra_leagues))
 
     st.caption(f"Candidate pool has **{len(leagues_selected)}** leagues.")
 
@@ -179,6 +195,7 @@ with st.sidebar:
             st.warning("Min value is greater than max value; swapping.")
             min_value, max_value = max_value, min_value
 
+    # League quality range filter (0–101)
     min_strength, max_strength = st.slider("League quality (strength)", 0, 101, (0, 101))
 
     st.subheader("Weights")
@@ -286,18 +303,21 @@ similarity_df = similarity_df[
 
 # League strength & range
 similarity_df['League strength'] = similarity_df['League'].map(league_strengths).fillna(0.0)
-target_league_strength = league_strengths.get(target_league, 1.0)
+target_league_strength = float(league_strengths.get(target_league, 1.0))
 
 similarity_df = similarity_df[
     (similarity_df['League strength'] >= float(min_strength)) &
     (similarity_df['League strength'] <= float(max_strength))
 ]
 
-# Difficulty adjustment
-league_ratio = (similarity_df['League strength'] / target_league_strength).clip(lower=0.5, upper=1.0)
+# Difficulty adjustment (SYMMETRIC – penalize stronger OR weaker leagues vs target; never boost)
+eps = 1e-6
+cand_ls = np.maximum(similarity_df['League strength'].astype(float), eps)
+tgt_ls_safe = max(target_league_strength, eps)
+league_ratio = np.minimum(cand_ls / tgt_ls_safe, tgt_ls_safe / cand_ls)  # <= 1 always
+
 similarity_df['Adjusted Similarity'] = (
-    similarity_df['Similarity'] * (1 - league_weight) +
-    similarity_df['Similarity'] * league_ratio * league_weight
+    similarity_df['Similarity'] * ((1 - league_weight) + league_weight * league_ratio)
 )
 
 # Rank
@@ -331,6 +351,7 @@ with st.expander("Debug / Repro details"):
         "market_value_range": (int(min_value), int(max_value)),
         "minutes_range": (int(min_minutes), int(max_minutes)),
     })
+
 
 
 
